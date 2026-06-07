@@ -1,0 +1,313 @@
+'use client'
+// WhatsApp Real Inbox Component for StrixMind
+// Features: Real Supabase data, WhatsApp messaging, real-time updates
+
+import { useState, useEffect } from 'react'
+import { Send, Loader, Phone, MoreHorizontal } from 'lucide-react'
+import { createClient } from '@supabase/supabase-js'
+import { sendTextMessage } from '@/lib/whatsapp'
+import { getInitials, formatTime, PRIORITY_COLORS, cn } from '@/lib/utils'
+
+// Browser-safe Supabase client (uses anon key, public access only)
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL ?? '',
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? ''
+)
+
+interface Conversation {
+  id: string
+  customer_phone: string
+  customer_name: string
+  last_message: string
+  last_message_time: string
+  status: 'open' | 'waiting' | 'resolved'
+  priority: 'low' | 'medium' | 'high' | 'urgent'
+  assigned_to: string | null
+  created_at: string
+  updated_at: string
+}
+
+interface Message {
+  id: string
+  conversation_id: string
+  sender: 'customer' | 'agent' | 'ai'
+  content: string
+  message_type: 'text' | 'image' | 'document' | 'note'
+  whatsapp_message_id: string | null
+  read: boolean
+  created_at: string
+}
+
+function ConversationItem({ 
+  conv, 
+  active, 
+  onClick 
+}: { 
+  conv: Conversation
+  active: boolean
+  onClick: () => void 
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className={cn('w-full text-left p-4 rounded-2xl transition-all hover:bg-black/5 mb-1', active ? 'bg-emerald-50/80' : '')}
+      style={{ border: active ? '1px solid rgba(34,197,94,0.15)' : '1px solid transparent' }}
+    >
+      <div className="flex items-start gap-3">
+        <div className="w-9 h-9 rounded-full flex items-center justify-center text-xs font-semibold flex-shrink-0"
+          style={{ background: 'linear-gradient(135deg, #dcfce7, #bbf7d0)', color: '#166534' }}>
+          {getInitials(conv.customer_name)}
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center justify-between mb-0.5">
+            <span className="text-xs font-semibold truncate" style={{ color: 'var(--text-primary)' }}>
+              {conv.customer_name}
+            </span>
+            <span className="text-[10px] flex-shrink-0 ml-2" style={{ color: 'var(--text-muted)' }}>
+              {formatTime(new Date(conv.last_message_time))}
+            </span>
+          </div>
+          <div className="text-[11px] truncate mb-2" style={{ color: 'var(--text-muted)' }}>
+            {conv.last_message}
+          </div>
+          <div className="flex items-center gap-1.5">
+            <span className={cn('text-[10px] px-1.5 py-0.5 rounded-full font-medium', PRIORITY_COLORS[conv.priority]?.bg ?? '')}>
+              {conv.priority}
+            </span>
+            <span style={{ fontSize: '10px', color: '#666' }}>✓ WhatsApp</span>
+          </div>
+        </div>
+      </div>
+    </button>
+  )
+}
+
+export default function Inbox() {
+  const [conversations, setConversations] = useState<Conversation[]>([])
+  const [selected, setSelected] = useState<Conversation | null>(null)
+  const [messages, setMessages] = useState<Message[]>([])
+  const [replyText, setReplyText] = useState('')
+  const [filterStatus, setFilterStatus] = useState<string>('all')
+  const [loading, setLoading] = useState(true)
+  const [sending, setSending] = useState(false)
+
+  useEffect(() => {
+    const loadConversations = async () => {
+      setLoading(true)
+      try {
+        const { data, error } = await supabase
+          .from('conversations')
+          .select('*')
+          .order('last_message_time', { ascending: false })
+
+        if (!error && data) {
+          setConversations(data as Conversation[])
+          if (data.length > 0 && !selected) {
+            setSelected(data[0] as Conversation)
+          }
+        }
+      } catch (err) {
+        console.error('Load error:', err)
+      }
+      setLoading(false)
+    }
+
+    loadConversations()
+  }, [])
+
+  useEffect(() => {
+    if (!selected) return
+
+    const loadMessages = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('messages')
+          .select('*')
+          .eq('conversation_id', selected.id)
+          .order('created_at', { ascending: true })
+
+        if (!error && data) {
+          setMessages(data as Message[])
+        }
+      } catch (err) {
+        console.error('Messages error:', err)
+      }
+    }
+
+    loadMessages()
+  }, [selected])
+
+  const filtered = filterStatus === 'all' 
+    ? conversations 
+    : conversations.filter(c => c.status === filterStatus)
+
+  const handleSendMessage = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!replyText.trim() || !selected) return
+
+    setSending(true)
+    try {
+      // Send via WhatsApp API
+      await sendTextMessage(selected.customer_phone, replyText)
+      
+      // Store in database
+      await supabase.from('messages').insert({
+        conversation_id: selected.id,
+        sender: 'agent',
+        content: replyText,
+        message_type: 'text',
+        read: true,
+        created_at: new Date().toISOString(),
+      })
+
+      setReplyText('')
+      
+      // Refresh messages
+      const { data } = await supabase
+        .from('messages')
+        .select('*')
+        .eq('conversation_id', selected.id)
+        .order('created_at', { ascending: true })
+      
+      if (data) setMessages(data as Message[])
+    } catch (error) {
+      console.error('Send error:', error)
+      alert('Failed to send')
+    } finally {
+      setSending(false)
+    }
+  }
+
+  return (
+    <div className="flex h-[calc(100vh-80px)] gap-4 -mt-2 overflow-hidden">
+      {/* Conversations List */}
+      <div className="glass rounded-3xl flex flex-col overflow-hidden" style={{ width: 300, flexShrink: 0 }}>
+        <div className="p-3 border-b" style={{ borderColor: 'rgba(34,197,94,0.08)' }}>
+          <div className="flex gap-1">
+            {['all', 'open', 'waiting', 'resolved'].map(f => (
+              <button 
+                key={f} 
+                onClick={() => setFilterStatus(f)}
+                className="flex-1 py-1.5 rounded-xl text-[11px] font-medium capitalize transition-all"
+                style={{
+                  background: filterStatus === f ? 'rgba(34,197,94,0.12)' : 'transparent',
+                  color: filterStatus === f ? '#166534' : 'var(--text-muted)',
+                }}>
+                {f}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-2">
+          {loading ? (
+            <div className="flex items-center justify-center h-full">
+              <Loader className="w-4 h-4 animate-spin" />
+            </div>
+          ) : filtered.length === 0 ? (
+            <div className="flex items-center justify-center h-full text-xs text-gray-500">
+              No conversations yet
+            </div>
+          ) : (
+            filtered.map(conv => (
+              <ConversationItem 
+                key={conv.id} 
+                conv={conv} 
+                active={selected?.id === conv.id} 
+                onClick={() => setSelected(conv)} 
+              />
+            ))
+          )}
+        </div>
+      </div>
+
+      {/* Chat Area */}
+      <div className="glass rounded-3xl flex flex-col flex-1 overflow-hidden">
+        {selected ? (
+          <>
+            {/* Header */}
+            <div className="flex items-center justify-between px-5 py-4 border-b" style={{ borderColor: 'rgba(34,197,94,0.08)' }}>
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-full flex items-center justify-center text-xs font-semibold"
+                  style={{ background: 'linear-gradient(135deg, #dcfce7, #bbf7d0)', color: '#166534' }}>
+                  {getInitials(selected.customer_name)}
+                </div>
+                <div>
+                  <div className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>
+                    {selected.customer_name}
+                  </div>
+                  <div className="text-[11px]" style={{ color: 'var(--text-muted)' }}>
+                    {selected.customer_phone} • WhatsApp
+                  </div>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <button className="w-8 h-8 rounded-xl flex items-center justify-center hover:bg-black/5">
+                  <Phone className="w-4 h-4" style={{ color: 'var(--text-secondary)' }} />
+                </button>
+                <button className="w-8 h-8 rounded-xl flex items-center justify-center hover:bg-black/5">
+                  <MoreHorizontal className="w-4 h-4" style={{ color: 'var(--text-secondary)' }} />
+                </button>
+              </div>
+            </div>
+
+            {/* Messages */}
+            <div className="flex-1 overflow-y-auto p-5 space-y-3">
+              {messages.length === 0 ? (
+                <div className="flex items-center justify-center h-full text-xs text-gray-400">
+                  No messages yet
+                </div>
+              ) : (
+                messages.map(msg => (
+                  <div key={msg.id} className={cn('flex', msg.sender === 'customer' ? 'justify-start' : 'justify-end')}>
+                    <div className={cn(
+                      'max-w-[70%] px-4 py-2.5 rounded-2xl text-[11px] leading-relaxed break-words',
+                      msg.sender === 'customer' 
+                        ? 'bg-gray-100 text-gray-900'
+                        : 'bg-emerald-500 text-white'
+                    )}>
+                      {msg.content}
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+
+            {/* Input */}
+            <form onSubmit={handleSendMessage} className="p-4 border-t" style={{ borderColor: 'rgba(34,197,94,0.08)' }}>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={replyText}
+                  onChange={(e) => setReplyText(e.target.value)}
+                  placeholder="Type a message..."
+                  className="flex-1 bg-gray-100 rounded-2xl px-4 py-2.5 text-[12px] outline-none disabled:opacity-50"
+                  disabled={sending}
+                />
+                <button
+                  type="submit"
+                  disabled={sending || !replyText.trim()}
+                  className="w-10 h-10 rounded-2xl flex items-center justify-center transition-colors"
+                  style={{
+                    background: sending || !replyText.trim() ? '#ccc' : '#22c55e',
+                    cursor: sending || !replyText.trim() ? 'not-allowed' : 'pointer',
+                  }}
+                >
+                  {sending ? (
+                    <Loader className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Send className="w-4 h-4 text-white" />
+                  )}
+                </button>
+              </div>
+            </form>
+          </>
+        ) : (
+          <div className="flex items-center justify-center h-full" style={{ color: 'var(--text-muted)' }}>
+            Select a conversation
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}

@@ -1,0 +1,219 @@
+import { NextRequest, NextResponse } from 'next/server'
+import {
+  parseWebhookMessage,
+  parseWebhookStatus,
+  markAsRead,
+  sendTextMessage,
+  WhatsAppWebhookBody,
+} from '@/lib/whatsapp'
+import { createSupabaseServiceClientUntyped as createSupabaseServiceClient } from '@/lib/supabase/server'
+import { analyzeLeadFromConversation } from '@/lib/ai'
+import { runOrchestrator } from '@/lib/agents/orchestrator'
+
+// Re-export the WhatsApp-specific handlers so /api/webhooks also works
+// as a webhook endpoint (some Meta app configs point here instead of
+// /api/webhooks/whatsapp).
+
+const VERIFY_TOKEN = process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN
+
+// ─── GET: webhook verification ───────────────────────────────
+export async function GET(req: NextRequest) {
+  const { searchParams } = new URL(req.url)
+  const mode      = searchParams.get('hub.mode')
+  const token     = searchParams.get('hub.verify_token')
+  const challenge = searchParams.get('hub.challenge')
+
+  if (mode === 'subscribe' && token === VERIFY_TOKEN) {
+    return new NextResponse(challenge, { status: 200 })
+  }
+  return NextResponse.json({ error: 'Verification failed' }, { status: 403 })
+}
+
+// ─── POST: forward to the real WhatsApp handler ───────────────
+export async function POST(req: NextRequest) {
+  // Clone the request so we can forward it internally
+  try {
+    const body: WhatsAppWebhookBody = await req.json()
+    const db = createSupabaseServiceClient()
+
+    // ── Status update ─────────────────────────────────────────
+    const statusUpdate = parseWebhookStatus(body)
+    if (statusUpdate) {
+      await db
+        .from('messages')
+        .update({ status: statusUpdate.status })
+        .eq('wa_message_id', statusUpdate.waMessageId)
+      return NextResponse.json({ ok: true })
+    }
+
+    // ── Incoming message ──────────────────────────────────────
+    const msg = parseWebhookMessage(body)
+    if (!msg) return NextResponse.json({ ok: true })
+
+    // 1. Upsert contact
+    const { data: contact } = await db
+      .from('contacts')
+      .upsert({ phone: msg.from, name: msg.customerName }, { onConflict: 'phone' })
+      .select()
+      .single()
+
+    if (!contact) return NextResponse.json({ ok: true })
+
+    // 2. Find or create conversation
+    let { data: conversation } = await db
+      .from('conversations')
+      .select('*')
+      .eq('contact_id', contact.id)
+      .in('status', ['open', 'waiting'])
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .single()
+
+    const textContent = msg.type === 'text' ? msg.text : `[${msg.type}]`
+
+    if (!conversation) {
+      const { data: newConv } = await db
+        .from('conversations')
+        .insert({
+          contact_id: contact.id,
+          status: 'open',
+          priority: 'medium',
+          ai_auto_reply: true,
+          last_message_at: msg.timestamp,
+          last_message_preview: textContent?.substring(0, 100) ?? null,
+          unread_count: 1,
+        })
+        .select()
+        .single()
+      conversation = newConv
+    } else {
+      await db.from('conversations').update({
+        status: 'open',
+        last_message_at: msg.timestamp,
+        last_message_preview: textContent?.substring(0, 100) ?? null,
+        unread_count: (conversation.unread_count ?? 0) + 1,
+        updated_at: new Date().toISOString(),
+      }).eq('id', conversation.id)
+    }
+
+    if (!conversation) return NextResponse.json({ ok: true })
+
+    // 3. Store inbound message
+    await db.from('messages').insert({
+      conversation_id: conversation.id,
+      wa_message_id: msg.waMessageId,
+      direction: 'inbound',
+      sender_type: 'customer',
+      sender_name: msg.customerName,
+      type: msg.type as any,
+      content: textContent,
+      status: 'delivered',
+      wa_timestamp: msg.timestamp,
+    })
+
+    // 4. Mark as read
+    await markAsRead(msg.waMessageId).catch(() => {})
+
+    // 5. Return 200 immediately, do heavy work in background
+    runBackground(conversation, contact, msg, textContent ?? '', db).catch(
+      err => console.error('[webhook/bg]', err)
+    )
+
+    return NextResponse.json({ ok: true })
+  } catch (err: any) {
+    console.error('[webhook] error:', err)
+    return NextResponse.json({ ok: true }) // always 200 to WhatsApp
+  }
+}
+
+// ─── Background processing ────────────────────────────────────
+async function runBackground(conversation: any, contact: any, msg: any, textContent: string, db: any) {
+  // Lead analysis
+  const analysis = await runLeadAnalysis(conversation.id, contact.id, db)
+  const leadContext = analysis
+    ? `Intent: ${analysis.intent}, Budget: ₹${analysis.budget ?? 'unknown'}, Urgency: ${analysis.urgency}, Score: ${analysis.ai_score}/100`
+    : 'New lead'
+
+  // Auto-reply if enabled
+  const { data: freshConv } = await db.from('conversations').select('ai_auto_reply').eq('id', conversation.id).single()
+  const autoReplyEnabled = freshConv?.ai_auto_reply !== false
+
+  if (autoReplyEnabled && textContent && !textContent.startsWith('[')) {
+    try {
+      const result = await runOrchestrator({ conversationId: conversation.id, userMessage: textContent, history: [], contactName: contact.name ?? contact.phone, leadContext })
+      if (result.reply) {
+        await sendTextMessage(msg.from, result.reply)
+        await db.from('messages').insert({
+          conversation_id: conversation.id,
+          direction: 'outbound',
+          sender_type: 'ai',
+          sender_name: 'StrixMind AI',
+          type: 'text',
+          content: result.reply,
+          status: 'sent',
+          metadata: { orchestrator: true, totalTokens: result.totalTokens, latencyMs: result.latencyMs },
+        })
+        await db.from('conversations').update({
+          last_message_at: new Date().toISOString(),
+          last_message_preview: result.reply.substring(0, 100),
+          updated_at: new Date().toISOString(),
+        }).eq('id', conversation.id)
+      }
+    } catch (err: any) {
+      console.error('[webhook/autoReply]', err.message)
+    }
+  }
+}
+
+async function runLeadAnalysis(conversationId: string, contactId: string, db: any) {
+  const { data: messages } = await db
+    .from('messages')
+    .select('content, direction, sender_type')
+    .eq('conversation_id', conversationId)
+    .order('created_at', { ascending: true })
+    .limit(10)
+
+  if (!messages?.length) return null
+
+  const aiMessages = messages
+    .filter((m: any) => m.content)
+    .map((m: any) => ({ role: (m.direction === 'inbound' ? 'user' : 'assistant') as 'user' | 'assistant', content: m.content }))
+
+  const analysis = await analyzeLeadFromConversation(aiMessages, conversationId)
+
+  const { data: existingLead } = await db.from('leads').select('id').eq('contact_id', contactId).single()
+  const leadPatch = {
+    intent: analysis.intent, budget: analysis.budget, urgency: analysis.urgency,
+    sentiment: analysis.sentiment, ai_score: analysis.ai_score, confidence: analysis.confidence,
+    ai_summary: analysis.summary, tags: analysis.suggested_tags, updated_at: new Date().toISOString(),
+  }
+
+  let leadId: string
+  if (existingLead) {
+    leadId = existingLead.id
+    await db.from('leads').update(leadPatch).eq('id', leadId)
+  } else {
+    const { data: contactRow } = await db.from('contacts').select('name, phone').eq('id', contactId).single()
+    const { data: newLead } = await db.from('leads').insert({
+      contact_id: contactId, name: contactRow?.name ?? 'Unknown', phone: contactRow?.phone,
+      stage: 'new', source: 'whatsapp', ...leadPatch,
+    }).select('id').single()
+    leadId = newLead?.id
+    await db.from('conversations').update({ lead_id: leadId }).eq('id', conversationId)
+  }
+
+  await db.from('conversations').update({
+    ai_score: analysis.ai_score, sentiment: analysis.sentiment, ai_summary: analysis.summary,
+  }).eq('id', conversationId)
+
+  if (analysis.create_task && analysis.task_title) {
+    await db.from('tasks').insert({
+      title: analysis.task_title, lead_id: leadId, conversation_id: conversationId,
+      priority: analysis.urgency === 'high' ? 'urgent' : analysis.urgency === 'medium' ? 'high' : 'medium',
+      due_date: new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString(),
+      ai_generated: true, ai_reasoning: `Lead score: ${analysis.ai_score}, Intent: ${analysis.intent}`,
+    }).catch(() => {})
+  }
+
+  return { ...analysis, leadId }
+}
