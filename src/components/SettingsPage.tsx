@@ -175,6 +175,20 @@ export default function SettingsPage() {
         </div>
       </div>
 
+      {/* Integrations */}
+      <div className="glass rounded-3xl p-5">
+        <div className="flex items-center gap-2 mb-4">
+          <Webhook className="w-4 h-4" style={{ color: '#8b5cf6' }} />
+          <span className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>Lead Intake Integrations</span>
+        </div>
+        <div className="space-y-2">
+          <CopyField label="Gmail User (GMAIL_USER)"                   value={process.env.GMAIL_USER                 ?? 'Not configured'} />
+          <CopyField label="Team Email (TEAM_NOTIFICATION_EMAIL)"      value={process.env.TEAM_NOTIFICATION_EMAIL    ?? 'Not configured'} />
+          <CopyField label="Apollo API Key (APOLLO_API_KEY)"           value={process.env.APOLLO_API_KEY             ?? 'Not configured'} masked />
+          <CopyField label="HubSpot Token (HUBSPOT_PRIVATE_APP_TOKEN)" value={process.env.HUBSPOT_PRIVATE_APP_TOKEN  ?? 'Not configured'} masked />
+        </div>
+      </div>
+
       {/* .env.local reference */}
       <div className="glass rounded-3xl p-5">
         <div className="text-sm font-semibold mb-3" style={{ color: 'var(--text-primary)' }}>.env.local Reference</div>
@@ -197,7 +211,14 @@ AI_MODEL_SMALL=gpt-4o-mini
 AI_MODEL_LARGE=gpt-4o
 OPENAI_API_KEY=sk-...
 ANTHROPIC_API_KEY=sk-ant-...
-GEMINI_API_KEY=AIza...`}
+GEMINI_API_KEY=AIza...
+
+# Lead Intake Pipeline
+GMAIL_USER=you@gmail.com
+GMAIL_APP_PASSWORD=xxxx-xxxx-xxxx-xxxx
+TEAM_NOTIFICATION_EMAIL=team@yourdomain.com
+APOLLO_API_KEY=your_apollo_key
+HUBSPOT_PRIVATE_APP_TOKEN=pat-na1-xxxxxxxx`}
         </pre>
       </div>
     </div>

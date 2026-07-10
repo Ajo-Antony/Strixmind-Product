@@ -2,15 +2,16 @@
 import { useState } from 'react'
 import { useLeads, useUpdateLead, useCreateLead, useDeleteLead, useCSVExport, useAnalyzeLead, useBulkAnalyzeLeads } from '@/lib/hooks'
 import { getInitials, formatCurrency, formatTime, STAGE_LABELS, STAGE_COLORS, scoreColor } from '@/lib/utils'
-import { Plus, Search, Trash2, Loader2, Upload, Download, LayoutGrid, List, Target, ChevronDown, Brain, Sparkles, RefreshCw } from 'lucide-react'
+import { Plus, Search, Trash2, Loader2, Upload, Download, LayoutGrid, List, Target, ChevronDown, Brain, Sparkles, RefreshCw, Webhook } from 'lucide-react'
 import AgentOutreach from './AgentOutreach'
 import { toast } from 'sonner'
 import CSVImporter from './CSVImporter'
 import CampaignsSection from './CampaignsSection'
+import LeadIntakePage from './LeadIntakePage'
 
 const STAGES = ['new','qualified','contacted','scheduled','negotiation','converted']
 
-type TabId = 'board' | 'table' | 'import' | 'campaigns' | 'outreach'
+type TabId = 'board' | 'table' | 'import' | 'campaigns' | 'outreach' | 'intake'
 
 function Skeleton({ className = '' }: { className?: string }) {
   return <div className={`animate-pulse rounded-xl bg-black/6 ${className}`} />
@@ -397,6 +398,7 @@ export default function Leads() {
     { id: 'table',     label: 'Table',          icon: List       },
     { id: 'outreach',  label: 'Agent Outreach', icon: Brain      },
     { id: 'import',    label: 'Import CSV',     icon: Upload     },
+    { id: 'intake',    label: 'Lead Intake',    icon: Webhook    },
     { id: 'campaigns', label: 'Campaigns',      icon: Target     },
   ]
 
@@ -644,7 +646,12 @@ export default function Leads() {
         </div>
       )}
 
-      {activeTab === 'campaigns' && (
+      
+      {activeTab === 'intake' && (
+        <LeadIntakePage />
+      )}
+
+{activeTab === 'campaigns' && (
         <div className="flex-1">
           <CampaignsSection />
         </div>

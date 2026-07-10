@@ -70,7 +70,9 @@ export async function crmAgent(task: AgentTask): Promise<any> {
 }
 
 // ── Outreach Agent ────────────────────────────────────────────────────────────
-// Generates context-aware reply suggestions
+// Generates context-aware reply suggestions.
+// When the conversation is in qualification mode (outreach: true metadata),
+// it follows a structured qualification flow and detects interest signals.
 export async function outreachAgent(task: AgentTask): Promise<any> {
   const { conversationId, history, contactName, leadContext, tone, model, provider } = task.input
 
@@ -79,16 +81,48 @@ export async function outreachAgent(task: AgentTask): Promise<any> {
     .map((m: any) => `${m.direction === 'inbound' ? 'Customer' : 'Agent'}: ${m.content}`)
     .join('\n')
 
-  const res = await callAI({
-    systemPrompt: `You are an expert sales assistant for a premium bridal boutique. Generate exactly 3 WhatsApp reply suggestions.
+  // Detect if this is a qualification outreach conversation
+  const isQualification = leadContext?.includes('qualification') ||
+    (history ?? []).some((m: any) => m.metadata?.qualification)
+
+  const systemPrompt = isQualification
+    ? `You are a friendly AI sales assistant for StrixMind, an AI automation company that helps businesses automate client acquisition, WhatsApp follow-ups, CRM workflows, and lead management.
+
+Your goal in this conversation is to:
+1. Understand what the prospect's business does and their main pain points
+2. Gauge their interest in AI automation tools
+3. Collect key info: their business type, team size, current tools they use
+4. Pitch StrixMind's value clearly and naturally — not pushy
+5. Ask if they'd like a free demo or consultation call
+6. If they say YES or show interest → confirm and say the team will reach out
+7. If they say NO or not interested → thank them warmly and close gracefully
+
+Tone: friendly, helpful, conversational. Use emojis naturally. Keep messages short (2-4 lines max for WhatsApp).
+
+IMPORTANT — after generating suggestions also output an "intent" field:
+- "interested" if the customer is clearly interested or agreed to a demo
+- "not_interested" if they clearly declined or said not now
+- "collecting_info" if still in discovery
+- "neutral" if unclear
+
+Respond ONLY with JSON:
+{
+  "suggestions": [{"text": "...", "label": "short label"}],
+  "intent": "interested|not_interested|collecting_info|neutral",
+  "collected": { "business_type": "...", "pain_point": "...", "team_size": "..." }
+}`
+    : `You are an expert sales assistant for StrixMind AI. Generate exactly 3 WhatsApp reply suggestions.
 Tone: ${tone ?? 'warm and professional'}. Use emojis naturally. Move toward a sale or appointment.
-Respond ONLY with JSON: {"suggestions": [{"text": "...", "label": "short label"}]}`,
+Respond ONLY with JSON: {"suggestions": [{"text": "...", "label": "short label"}], "intent": "neutral", "collected": {}}`
+
+  const res = await callAI({
+    systemPrompt,
     messages: [{
       role: 'user',
       content: `Customer: ${contactName ?? 'Customer'}\nContext: ${leadContext ?? 'New lead'}\n\nConversation:\n${historyText}\n\nGenerate 3 reply suggestions.`,
     }],
     temperature: 0.7,
-    maxTokens: 600,
+    maxTokens: 800,
     taskType: 'reply_suggestions',
     responseFormat: 'json',
     size: 'large',
@@ -98,7 +132,60 @@ Respond ONLY with JSON: {"suggestions": [{"text": "...", "label": "short label"}
   })
 
   const parsed = JSON.parse(res.text)
-  return { suggestions: parsed.suggestions, tokensUsed: res.completionTokens }
+
+  // If we detected a clear intent, update the lead stage in the background
+  if (conversationId && parsed.intent && parsed.intent !== 'neutral') {
+    updateLeadFromQualification(conversationId, parsed.intent, parsed.collected ?? {}).catch(() => {})
+  }
+
+  return { suggestions: parsed.suggestions, intent: parsed.intent, collected: parsed.collected, tokensUsed: res.completionTokens }
+}
+
+// Updates lead stage/notes based on qualification outcome
+async function updateLeadFromQualification(
+  conversationId: string,
+  intent: string,
+  collected: Record<string, string>
+) {
+  const supabase = createSupabaseServiceClient()
+
+  const { data: conv } = await supabase
+    .from('conversations')
+    .select('lead_id')
+    .eq('id', conversationId)
+    .single()
+
+  if (!conv?.lead_id) return
+
+  const stageMap: Record<string, string> = {
+    interested:      'qualified',
+    not_interested:  'closed',
+    collecting_info: 'contacted',
+    neutral:         'contacted',
+  }
+
+  const patch: Record<string, any> = {
+    stage: stageMap[intent] ?? 'contacted',
+    updated_at: new Date().toISOString(),
+  }
+
+  // Store collected info in notes
+  if (Object.keys(collected).length > 0) {
+    const collectedText = Object.entries(collected)
+      .filter(([, v]) => v)
+      .map(([k, v]) => `${k}: ${v}`)
+      .join(', ')
+    if (collectedText) {
+      const { data: lead } = await supabase.from('leads').select('notes').eq('id', conv.lead_id).single()
+      patch.notes = lead?.notes ? `${lead.notes}\n[AI Qualification] ${collectedText}` : `[AI Qualification] ${collectedText}`
+    }
+  }
+
+  if (intent === 'interested')     patch.urgency  = 'high'
+  if (intent === 'not_interested') patch.sentiment = 'negative'
+  if (intent === 'interested')     patch.sentiment = 'positive'
+
+  await supabase.from('leads').update(patch).eq('id', conv.lead_id)
 }
 
 // ── Memory Agent ──────────────────────────────────────────────────────────────

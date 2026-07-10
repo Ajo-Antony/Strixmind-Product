@@ -28,16 +28,26 @@ export async function runOrchestrator(ctx: OrchestratorInput): Promise<Orchestra
   const db = createSupabaseServiceClient()
   const { data: messages } = await db
     .from('messages')
-    .select('content, direction, sender_name, created_at')
+    .select('content, direction, sender_name, created_at, metadata')
     .eq('conversation_id', ctx.conversationId)
     .order('created_at', { ascending: false })
     .limit(20)
 
   const history = (messages ?? [])
     .reverse()
-    .map((m: any) => ({ role: m.direction === 'inbound' ? 'user' : 'assistant', content: m.content }) as const)
+    .map((m: any) => ({ role: m.direction === 'inbound' ? 'user' : 'assistant', content: m.content, metadata: m.metadata }) as const)
 
-  const fullCtx: OrchestratorInput = { ...ctx, history }
+  // Detect if this is a qualification outreach conversation
+  const isQualificationConv = (messages ?? []).some(
+    (m: any) => m.metadata?.qualification === true || m.metadata?.outreach === true
+  )
+
+  // Enrich leadContext with qualification flag so outreachAgent knows the mode
+  const enrichedLeadContext = isQualificationConv
+    ? `${ctx.leadContext ?? 'New lead'} [qualification:true]`
+    : ctx.leadContext
+
+  const fullCtx: OrchestratorInput = { ...ctx, history, leadContext: enrichedLeadContext }
 
   // ── 2. Planner decides which agents to run ───────────────────────────────
   reflectionLog.push('Planner: analysing conversation…')
@@ -59,7 +69,7 @@ export async function runOrchestrator(ctx: OrchestratorInput): Promise<Orchestra
     conversationId: ctx.conversationId,
     history: messages?.reverse() ?? [],
     contactName: ctx.contactName,
-    leadContext: ctx.leadContext,
+    leadContext: enrichedLeadContext,
     model: ctx.model,
     provider: ctx.provider,
   }

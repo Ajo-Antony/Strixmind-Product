@@ -672,3 +672,30 @@ export function useRebuildProfile() {
       apiMutate('/api/memory', 'POST', { contact_id: contactId }),
   })
 }
+
+// ── Outreach: launch AI qualification campaign to a set of leads ─────────────
+export function useLeadOutreach() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (payload: {
+      lead_ids: string[]
+      message?: string
+      use_template?: boolean
+      template_name?: string
+      template_language?: string
+    }) => {
+      const res = await fetch('/api/leads/outreach', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      })
+      const json = await res.json()
+      if (!res.ok) throw new Error(json.error ?? 'Outreach failed')
+      return json.data
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['leads'] })
+      qc.invalidateQueries({ queryKey: ['conversations'] })
+    },
+  })
+}

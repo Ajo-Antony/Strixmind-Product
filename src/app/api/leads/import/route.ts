@@ -71,7 +71,7 @@ export async function POST(req: NextRequest) {
         ai_score: 50,
         source: 'csv_import',
         urgency: 'medium',
-        confidence: 50,
+        confidence: 0.5,
         sentiment: 'neutral',
       })
     })
