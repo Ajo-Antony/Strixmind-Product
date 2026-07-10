@@ -316,7 +316,7 @@ export default function Tasks() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         {cols.map(col => {
           const colIds = col.tasks.map((t: any) => t.id)
-          const allColSelected = colIds.length > 0 && colIds.every(id => selected.has(id))
+          const allColSelected = colIds.length > 0 && colIds.every((id: any) => selected.has(id))
           return (
             <div key={col.key} className="glass rounded-3xl p-4">
               <div className="flex items-center gap-2 mb-4">

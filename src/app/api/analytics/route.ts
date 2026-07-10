@@ -30,7 +30,7 @@ export async function GET(req: NextRequest) {
     db.from('tasks').select('*', { count: 'exact', head: true }).neq('status', 'done'),
     db.from('tasks').select('*', { count: 'exact', head: true }).eq('ai_generated', true),
     db.from('ai_requests').select('total_tokens, latency_ms, success, cost_usd').gte('created_at', startOfMonth),
-    db.from('leads').select('stage').then(r => ({
+    db.from('leads').select('stage').then((r: any) => ({
       data: r.data
         ? Object.entries(
             r.data.reduce((acc: Record<string, number>, l: any) => {
@@ -52,7 +52,7 @@ export async function GET(req: NextRequest) {
   // AI stats aggregation
   const totalTokens = (aiStats ?? []).reduce((s: number, r: any) => s + (r.total_tokens ?? 0), 0)
   const avgLatency = aiStats?.length
-    ? Math.round((aiStats as any[]).reduce((s, r) => s + (r.latency_ms ?? 0), 0) / aiStats.length)
+    ? Math.round((aiStats as any[]).reduce((s: number, r: any) => s + (r.latency_ms ?? 0), 0) / aiStats.length)
     : 0
   const successRate = aiStats?.length
     ? Math.round(((aiStats as any[]).filter(r => r.success).length / aiStats.length) * 100)

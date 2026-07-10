@@ -1,13 +1,14 @@
 // src/app/api/workflows/run/route.ts
 
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
 import { callAI } from '@/lib/ai'
+import { createSupabaseServiceClient } from '@/lib/supabase/server'
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-)
+const supabase = new Proxy({}, {
+  get: (target, prop) => {
+    return (createSupabaseServiceClient() as any)[prop]
+  }
+}) as any
 
 // ── Types ────────────────────────────────────────────────────────────────────
 export interface StepLog {
@@ -194,11 +195,11 @@ async function fetchConversationMessages(conversationId: string, limit = 10): Pr
   if (!data) return []
   return data
     .reverse()
-    .map(m => ({
+    .map((m: any) => ({
       role: (m.direction === 'inbound' ? 'user' : 'assistant') as 'user' | 'assistant',
       content: m.content ?? '',
     }))
-    .filter(m => m.content.trim().length > 0)
+    .filter((m: any) => m.content.trim().length > 0)
 }
 
 // ── Generate AI reply using the lead's conversation history ──────────────────

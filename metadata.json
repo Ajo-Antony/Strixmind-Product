@@ -1,0 +1,8 @@
+{
+  "name": "StrixMind CRM",
+  "description": "AI-native WhatsApp CRM, inbox, and workflow automation",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

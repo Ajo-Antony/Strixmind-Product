@@ -6,7 +6,14 @@ import type { AIRequestOptions, AIResponse, ProviderName, ModelSize } from './ty
 import { callCohere, resolveCohereModel } from './cohere'
 
 // Module-level singleton — avoids re-instantiating on every request
-const openaiClient = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
+let openaiClient: OpenAI | null = null
+
+function getOpenAIClient(): OpenAI {
+  if (!openaiClient) {
+    openaiClient = new OpenAI({ apiKey: process.env.OPENAI_API_KEY || 'placeholder-openai-key' })
+  }
+  return openaiClient
+}
 
 // ─── Model resolution ─────────────────────────────────────────────────────────
 const MODEL_MAP: Record<ProviderName, Record<ModelSize, string>> = {
@@ -57,7 +64,7 @@ export async function dispatchToProvider(
 
 // ─── OpenAI ───────────────────────────────────────────────────────────────────
 async function callOpenAIProvider(opts: AIRequestOptions & { model: string }): Promise<AIResponse> {
-  const completion = await openaiClient.chat.completions.create({
+  const completion = await getOpenAIClient().chat.completions.create({
     model: opts.model,
     temperature: opts.temperature ?? 0.5,
     max_tokens: opts.maxTokens ?? 1000,
