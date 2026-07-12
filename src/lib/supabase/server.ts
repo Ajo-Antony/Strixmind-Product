@@ -2,7 +2,7 @@ import { createClient } from '@supabase/supabase-js'
 import type { Database } from '@/types/database'
 
 let _client: ReturnType<typeof createClient<Database>> | null = null
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+// eslint-disable-next-line
 let _anyClient: any = null
 
 function getEnv() {
