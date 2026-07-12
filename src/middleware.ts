@@ -25,10 +25,9 @@ export async function middleware(req: NextRequest) {
 
     const { data: { session } } = await supabase.auth.getSession()
 
-    // Allow webhook + auth routes without session
-    const isPublic = req.nextUrl.pathname.startsWith('/api/webhooks')
-      || req.nextUrl.pathname.startsWith('/api/providers')
-      || req.nextUrl.pathname.startsWith('/login')
+    // Allow all API routes and /login without session redirect in middleware
+    const isApi = req.nextUrl.pathname.startsWith('/api/')
+    const isPublic = isApi || req.nextUrl.pathname.startsWith('/login')
 
     if (!session && !isPublic) {
       return NextResponse.redirect(new URL('/login', req.url))

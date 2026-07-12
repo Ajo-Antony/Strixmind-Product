@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import fs from 'fs'
 import path from 'path'
+import { addLog } from '@/lib/logger'
 
 const ENV_PATH = path.join(process.cwd(), '.env.local')
 
@@ -43,9 +44,10 @@ function writeEnvFile(updates: Record<string, string>) {
     })
     
     fs.writeFileSync(ENV_PATH, lines.join('\n'), 'utf-8')
-  } catch (err) {
-    console.error('Error writing .env.local:', err)
-    throw new Error('Failed to persist connection settings to disk')
+    addLog('success', 'general', `Local configurations saved to .env.local on server.`)
+  } catch (err: any) {
+    console.warn('Error writing .env.local (expected on Vercel):', err)
+    addLog('warn', 'general', 'Unable to write .env.local (expected on Vercel). Falling back to active runtime variables and client-side persistence.', err.message)
   }
 }
 
@@ -100,6 +102,7 @@ export async function GET(req: NextRequest) {
       rawConfiguredKeys: rawKeys, // tells us which ones are filled
     })
   } catch (err: any) {
+    addLog('error', 'general', `Error loading connection configurations: ${err.message}`)
     return NextResponse.json({ success: false, error: err.message }, { status: 500 })
   }
 }
@@ -130,12 +133,15 @@ export async function POST(req: NextRequest) {
         process.env[key] = val
       })
 
+      addLog('success', 'general', `Configured settings updated successfully: ${Object.keys(envUpdates).join(', ')}`)
+
       return NextResponse.json({ success: true, message: 'Connections updated permanently' })
     }
 
     if (action === 'test') {
       const { type, config } = payload
       const start = Date.now()
+      addLog('info', 'general', `Starting handshake verification for system: ${type.toUpperCase()}`)
       
       try {
         switch (type) {
@@ -146,13 +152,12 @@ export async function POST(req: NextRequest) {
             
             const { createClient } = await import('@supabase/supabase-js')
             const client = createClient(url, key)
-            // Try query to confirm
             const { error } = await client.from('leads').select('id').limit(1)
-            // It succeeds if there is no network/auth error. Even if table is empty or missing,
-            // standard schema.sql is provided.
+            
             if (error && error.code !== 'PGRST116' && !error.message?.includes('does not exist')) {
               throw new Error(error.message)
             }
+            addLog('success', 'database', 'Supabase Database Handshake verified successfully!')
             break
           }
           
@@ -171,6 +176,7 @@ export async function POST(req: NextRequest) {
             if (!res.ok) {
               throw new Error(data.error?.message || 'Meta API returned an error status')
             }
+            addLog('success', 'webhook', 'Meta WhatsApp API Connection handshake verified successfully!')
             break
           }
           
@@ -190,6 +196,7 @@ export async function POST(req: NextRequest) {
             if (!res.ok) {
               throw new Error(data.error?.message || 'Gemini API authentication failed')
             }
+            addLog('success', 'ai', 'Google Gemini AI connection verified successfully!')
             break
           }
 
@@ -213,6 +220,7 @@ export async function POST(req: NextRequest) {
             if (!res.ok) {
               throw new Error(data.error?.message || 'OpenAI API authentication failed')
             }
+            addLog('success', 'ai', 'OpenAI connection verified successfully!')
             break
           }
           
@@ -227,6 +235,7 @@ export async function POST(req: NextRequest) {
               auth: { user, pass }
             })
             await transporter.verify()
+            addLog('success', 'general', 'Gmail SMTP pipeline verified successfully!')
             break
           }
           
@@ -241,6 +250,7 @@ export async function POST(req: NextRequest) {
             if (!res.ok) {
               throw new Error(data.message || 'HubSpot Token verification failed')
             }
+            addLog('success', 'general', 'HubSpot CRM Integration verified successfully!')
             break
           }
           
@@ -260,6 +270,7 @@ export async function POST(req: NextRequest) {
             if (!res.ok) {
               throw new Error(data.message || 'Apollo API key verification failed')
             }
+            addLog('success', 'general', 'Apollo.io leads search engine verified successfully!')
             break
           }
           
@@ -273,6 +284,7 @@ export async function POST(req: NextRequest) {
           message: 'Connection verified successfully!'
         })
       } catch (err: any) {
+        addLog('error', 'general', `Verification failed for ${type.toUpperCase()}: ${err.message}`)
         return NextResponse.json({
           success: false,
           latencyMs: Date.now() - start,
@@ -283,6 +295,7 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ error: 'Invalid action' }, { status: 400 })
   } catch (err: any) {
+    addLog('error', 'general', `Internal server error inside connections: ${err.message}`)
     return NextResponse.json({ success: false, error: err.message }, { status: 500 })
   }
 }

@@ -9,6 +9,7 @@ import {
 import { createSupabaseServiceClientUntyped as createSupabaseServiceClient } from '@/lib/supabase/server'
 import { analyzeLeadFromConversation } from '@/lib/ai'
 import { runOrchestrator } from '@/lib/agents/orchestrator'
+import { addLog } from '@/lib/logger'
 
 const VERIFY_TOKEN = process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN
 
@@ -20,12 +21,15 @@ export async function GET(req: NextRequest) {
   const challenge = searchParams.get('hub.challenge')
 
   console.log('[webhook/verify] mode:', mode, 'token:', token, 'expected:', VERIFY_TOKEN)
+  addLog('info', 'webhook', `Verification handshake initiated. mode=${mode}`, { token, expected: VERIFY_TOKEN })
 
   if (mode === 'subscribe' && token === VERIFY_TOKEN) {
     console.log('[webhook/verify] ✅ Verified')
+    addLog('success', 'webhook', 'Webhook verification successful! Subscribed to Meta triggers.')
     return new NextResponse(challenge, { status: 200 })
   }
   console.warn('[webhook/verify] ❌ Failed — token mismatch')
+  addLog('error', 'webhook', 'Webhook verification failed: token mismatch or incorrect mode.', { mode, token })
   return NextResponse.json({ error: 'Verification failed' }, { status: 403 })
 }
 
@@ -35,9 +39,12 @@ export async function POST(req: NextRequest) {
     const body: WhatsAppWebhookBody = await req.json()
     const db = createSupabaseServiceClient()
 
+    addLog('info', 'webhook', 'Webhook event payload received from Meta.', body)
+
     // ── Status update ─────────────────────────────────────────
     const statusUpdate = parseWebhookStatus(body)
     if (statusUpdate) {
+      addLog('info', 'webhook', `Status update received: Message ID ${statusUpdate.waMessageId} changed to ${statusUpdate.status}`, statusUpdate)
       await db
         .from('messages')
         .update({ status: statusUpdate.status })
@@ -47,7 +54,12 @@ export async function POST(req: NextRequest) {
 
     // ── Incoming message ──────────────────────────────────────
     const msg = parseWebhookMessage(body)
-    if (!msg) return NextResponse.json({ ok: true })
+    if (!msg) {
+      addLog('info', 'webhook', 'Webhook payload received but contained no messages or status updates.', body)
+      return NextResponse.json({ ok: true })
+    }
+
+    addLog('success', 'webhook', `Incoming message from ${msg.customerName || msg.from}: "${msg.text || '['+msg.type+']'}"`, msg)
 
     // 1. Upsert contact
     const { data: contact } = await db
@@ -56,7 +68,10 @@ export async function POST(req: NextRequest) {
       .select()
       .single()
 
-    if (!contact) return NextResponse.json({ ok: true })
+    if (!contact) {
+      addLog('error', 'database', `Failed to upsert contact for sender: ${msg.from}`, { msg })
+      return NextResponse.json({ ok: true })
+    }
 
     // 2. Find or create conversation
     let { data: conversation } = await db
@@ -71,6 +86,7 @@ export async function POST(req: NextRequest) {
     const textContent = msg.type === 'text' ? msg.text : `[${msg.type}]`
 
     if (!conversation) {
+      addLog('info', 'database', `Creating new conversation session for contact ID: ${contact.id}`)
       const { data: newConv } = await db
         .from('conversations')
         .insert({
@@ -95,7 +111,10 @@ export async function POST(req: NextRequest) {
       }).eq('id', conversation.id)
     }
 
-    if (!conversation) return NextResponse.json({ ok: true })
+    if (!conversation) {
+      addLog('error', 'database', `Failed to locate or provision conversation for contact ID: ${contact.id}`)
+      return NextResponse.json({ ok: true })
+    }
 
     // 3. Store inbound message
     await db.from('messages').insert({
@@ -111,15 +130,21 @@ export async function POST(req: NextRequest) {
     })
 
     // 4. Mark as read
-    await markAsRead(msg.waMessageId).catch(() => {})
+    await markAsRead(msg.waMessageId).catch((err) => {
+      addLog('warn', 'webhook', `Could not automatically mark message ${msg.waMessageId} as read: ${err.message}`)
+    })
 
     // 5. Return 200 immediately, do heavy work in background
     runBackground(conversation, contact, msg, textContent ?? '', db).catch(
-      err => console.error('[webhook/bg]', err)
+      err => {
+        addLog('error', 'automation', `Orchestrator background thread failed: ${err.message}`, err.stack)
+        console.error('[webhook/bg]', err)
+      }
     )
 
     return NextResponse.json({ ok: true })
   } catch (err: any) {
+    addLog('error', 'webhook', `Webhook processing error: ${err.message}`, err.stack)
     console.error('[webhook] error:', err)
     return NextResponse.json({ ok: true }) // always 200 to WhatsApp
   }
