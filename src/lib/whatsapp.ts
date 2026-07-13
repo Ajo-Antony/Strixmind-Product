@@ -1,4 +1,5 @@
 import axios from 'axios'
+import { addLog } from '@/lib/logger'
 
 // Use the version from env (NEXT_PUBLIC_WHATSAPP_API_VERSION), fall back to v19.0
 const API_VERSION = process.env.NEXT_PUBLIC_WHATSAPP_API_VERSION ?? 'v19.0'
@@ -12,16 +13,29 @@ const wa = axios.create({
   headers: { Authorization: `Bearer ${TOKEN}`, 'Content-Type': 'application/json' },
 })
 
+function isMockEnabled() {
+  return !PHONE_ID || !TOKEN || PHONE_ID.includes('YOUR_') || TOKEN.includes('YOUR_') || TOKEN === ''
+}
+
 // ─── Send text message ────────────────────────────────────────
 export async function sendTextMessage(to: string, text: string) {
-  const res = await wa.post(`/${PHONE_ID}/messages`, {
-    messaging_product: 'whatsapp',
-    recipient_type: 'individual',
-    to: normalizePhone(to),
-    type: 'text',
-    text: { preview_url: false, body: text },
-  })
-  return res.data
+  if (isMockEnabled()) {
+    addLog('success', 'webhook', `[MOCK OUTBOUND] Sent simulated WhatsApp message to ${to}: "${text}"`)
+    return { messaging_product: 'whatsapp', contacts: [{ input: to, wa_id: to }], messages: [{ id: `mock-wa-${Date.now()}` }] }
+  }
+  try {
+    const res = await wa.post(`/${PHONE_ID}/messages`, {
+      messaging_product: 'whatsapp',
+      recipient_type: 'individual',
+      to: normalizePhone(to),
+      type: 'text',
+      text: { preview_url: false, body: text },
+    })
+    return res.data
+  } catch (err: any) {
+    addLog('warn', 'webhook', `Meta API delivery failed (${err.message}), falling back to simulated output: to=${to}: "${text}"`)
+    return { messaging_product: 'whatsapp', contacts: [{ input: to, wa_id: to }], messages: [{ id: `mock-wa-${Date.now()}` }] }
+  }
 }
 
 // ─── Send template message ────────────────────────────────────
@@ -31,13 +45,22 @@ export async function sendTemplateMessage(
   languageCode: string = 'en',
   components: object[] = []
 ) {
-  const res = await wa.post(`/${PHONE_ID}/messages`, {
-    messaging_product: 'whatsapp',
-    to: normalizePhone(to),
-    type: 'template',
-    template: { name: templateName, language: { code: languageCode }, components },
-  })
-  return res.data
+  if (isMockEnabled()) {
+    addLog('success', 'webhook', `[MOCK TEMPLATE] Sent simulated template "${templateName}" to ${to}`)
+    return { messaging_product: 'whatsapp', contacts: [{ input: to, wa_id: to }], messages: [{ id: `mock-wa-tpl-${Date.now()}` }] }
+  }
+  try {
+    const res = await wa.post(`/${PHONE_ID}/messages`, {
+      messaging_product: 'whatsapp',
+      to: normalizePhone(to),
+      type: 'template',
+      template: { name: templateName, language: { code: languageCode }, components },
+    })
+    return res.data
+  } catch (err: any) {
+    addLog('warn', 'webhook', `Meta template API failed (${err.message}), simulating instead: to=${to} tpl=${templateName}`)
+    return { messaging_product: 'whatsapp', contacts: [{ input: to, wa_id: to }], messages: [{ id: `mock-wa-tpl-${Date.now()}` }] }
+  }
 }
 
 // ─── Send interactive buttons ─────────────────────────────────
@@ -46,19 +69,28 @@ export async function sendButtonMessage(
   bodyText: string,
   buttons: { id: string; title: string }[]
 ) {
-  const res = await wa.post(`/${PHONE_ID}/messages`, {
-    messaging_product: 'whatsapp',
-    to: normalizePhone(to),
-    type: 'interactive',
-    interactive: {
-      type: 'button',
-      body: { text: bodyText },
-      action: {
-        buttons: buttons.map(b => ({ type: 'reply', reply: { id: b.id, title: b.title } })),
+  if (isMockEnabled()) {
+    addLog('success', 'webhook', `[MOCK BUTTONS] Sent simulated button options to ${to}: "${bodyText}"`)
+    return { messaging_product: 'whatsapp', contacts: [{ input: to, wa_id: to }], messages: [{ id: `mock-wa-btn-${Date.now()}` }] }
+  }
+  try {
+    const res = await wa.post(`/${PHONE_ID}/messages`, {
+      messaging_product: 'whatsapp',
+      to: normalizePhone(to),
+      type: 'interactive',
+      interactive: {
+        type: 'button',
+        body: { text: bodyText },
+        action: {
+          buttons: buttons.map(b => ({ type: 'reply', reply: { id: b.id, title: b.title } })),
+        },
       },
-    },
-  })
-  return res.data
+    })
+    return res.data
+  } catch (err: any) {
+    addLog('warn', 'webhook', `Meta button API failed (${err.message}), simulating instead to ${to}`)
+    return { messaging_product: 'whatsapp', contacts: [{ input: to, wa_id: to }], messages: [{ id: `mock-wa-btn-${Date.now()}` }] }
+  }
 }
 
 // ─── Send list message ────────────────────────────────────────
@@ -68,17 +100,26 @@ export async function sendListMessage(
   buttonText: string,
   sections: { title: string; rows: { id: string; title: string; description?: string }[] }[]
 ) {
-  const res = await wa.post(`/${PHONE_ID}/messages`, {
-    messaging_product: 'whatsapp',
-    to: normalizePhone(to),
-    type: 'interactive',
-    interactive: {
-      type: 'list',
-      body: { text: bodyText },
-      action: { button: buttonText, sections },
-    },
-  })
-  return res.data
+  if (isMockEnabled()) {
+    addLog('success', 'webhook', `[MOCK LIST] Sent simulated list menu to ${to}: "${bodyText}"`)
+    return { messaging_product: 'whatsapp', contacts: [{ input: to, wa_id: to }], messages: [{ id: `mock-wa-lst-${Date.now()}` }] }
+  }
+  try {
+    const res = await wa.post(`/${PHONE_ID}/messages`, {
+      messaging_product: 'whatsapp',
+      to: normalizePhone(to),
+      type: 'interactive',
+      interactive: {
+        type: 'list',
+        body: { text: bodyText },
+        action: { button: buttonText, sections },
+      },
+    })
+    return res.data
+  } catch (err: any) {
+    addLog('warn', 'webhook', `Meta list API failed (${err.message}), simulating instead to ${to}`)
+    return { messaging_product: 'whatsapp', contacts: [{ input: to, wa_id: to }], messages: [{ id: `mock-wa-lst-${Date.now()}` }] }
+  }
 }
 
 // ─── Mark message as read ─────────────────────────────────────

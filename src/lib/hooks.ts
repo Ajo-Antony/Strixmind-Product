@@ -59,9 +59,18 @@ export function useRealtimeSync() {
 
     channelRef.current = channel
 
+    // 24/7 Active Followup & Reminder worker ping (runs every 45 seconds while any browser session is active)
+    const cronInterval = setInterval(() => {
+      fetch('/api/workflows/cron').catch(() => {})
+    }, 45000)
+
+    // Trigger immediate check on mount
+    fetch('/api/workflows/cron').catch(() => {})
+
     return () => {
       supabase().removeChannel(channel)
       channelRef.current = null
+      clearInterval(cronInterval)
     }
   }, [qc])
 }
@@ -697,5 +706,24 @@ export function useLeadOutreach() {
       qc.invalidateQueries({ queryKey: ['leads'] })
       qc.invalidateQueries({ queryKey: ['conversations'] })
     },
+  })
+}
+
+// ════════════════════════════════════════════════════════════════════
+// FEATURE 13 — 24/7 Smart Follow-Up & Trust Hub
+// ════════════════════════════════════════════════════════════════════
+export function useRegenerateFollowUp() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (leadId: string) => apiMutate('/api/leads', 'PUT', { leadId }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['leads'] })
+    },
+  })
+}
+
+export function useRunFollowupCron() {
+  return useMutation({
+    mutationFn: () => apiFetch('/api/workflows/cron'),
   })
 }

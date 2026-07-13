@@ -152,6 +152,10 @@ export async function POST(req: NextRequest) {
 
 // ─── Background processing ────────────────────────────────────
 async function runBackground(conversation: any, contact: any, msg: any, textContent: string, db: any) {
+  // Trigger overdue automated follow-ups & reminders asynchronously
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
+  fetch(`${appUrl}/api/workflows/cron`).catch(() => {})
+
   const analysis = await runLeadAnalysis(conversation.id, contact.id, db)
   const leadContext = analysis
     ? `Intent: ${analysis.intent}, Budget: ₹${analysis.budget ?? 'unknown'}, Urgency: ${analysis.urgency}, Score: ${analysis.ai_score}/100`
@@ -212,11 +216,28 @@ async function runLeadAnalysis(conversationId: string, contactId: string, db: an
 
   const analysis = await analyzeLeadFromConversation(aiMessages, conversationId)
 
-  const { data: existingLead } = await db.from('leads').select('id').eq('contact_id', contactId).single()
+  const { data: existingLead } = await db.from('leads').select('id, metadata').eq('contact_id', contactId).single()
+  
   const leadPatch = {
-    intent: analysis.intent, budget: analysis.budget, urgency: analysis.urgency,
-    sentiment: analysis.sentiment, ai_score: analysis.ai_score, confidence: analysis.confidence,
-    ai_summary: analysis.summary, tags: analysis.suggested_tags, updated_at: new Date().toISOString(),
+    intent: analysis.intent,
+    budget: analysis.budget,
+    urgency: analysis.urgency,
+    sentiment: analysis.sentiment,
+    ai_score: analysis.ai_score,
+    confidence: analysis.confidence,
+    ai_summary: analysis.summary,
+    tags: analysis.suggested_tags,
+    metadata: {
+      ...(existingLead?.metadata ?? {}),
+      is_genuine: analysis.is_genuine ?? true,
+      genuineness_score: analysis.genuineness_score ?? 100,
+      genuineness_reasoning: analysis.genuineness_reasoning ?? 'Genuine lead',
+      recommended_next_followup_hours: analysis.recommended_next_followup_hours ?? 24,
+      followup_message_draft: analysis.followup_message_draft ?? '',
+      scheduled_followup_at: new Date(Date.now() + (analysis.recommended_next_followup_hours ?? 24) * 3600_000).toISOString(),
+      followup_sent: false,
+    },
+    updated_at: new Date().toISOString(),
   }
 
   let leadId: string

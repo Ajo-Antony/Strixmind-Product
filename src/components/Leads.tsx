@@ -1,8 +1,8 @@
 'use client'
 import { useState } from 'react'
-import { useLeads, useUpdateLead, useCreateLead, useDeleteLead, useCSVExport, useAnalyzeLead, useBulkAnalyzeLeads } from '@/lib/hooks'
+import { useLeads, useUpdateLead, useCreateLead, useDeleteLead, useCSVExport, useAnalyzeLead, useBulkAnalyzeLeads, useRegenerateFollowUp } from '@/lib/hooks'
 import { getInitials, formatCurrency, formatTime, STAGE_LABELS, STAGE_COLORS, scoreColor } from '@/lib/utils'
-import { Plus, Search, Trash2, Loader2, Upload, Download, LayoutGrid, List, Target, ChevronDown, Brain, Sparkles, RefreshCw, Webhook } from 'lucide-react'
+import { Plus, Search, Trash2, Loader2, Upload, Download, LayoutGrid, List, Target, ChevronDown, Brain, Sparkles, RefreshCw, Webhook, ShieldCheck, AlertCircle, Calendar, Clock, Send, ShieldAlert, Sparkle, RefreshCcw, CheckCircle2 } from 'lucide-react'
 import AgentOutreach from './AgentOutreach'
 import { toast } from 'sonner'
 import CSVImporter from './CSVImporter'
@@ -24,19 +24,22 @@ function LeadCard({
   onContact,
   onScore,
   scoring,
+  onSelect,
 }: {
   lead: any
   onStageChange: (id: string, stage: string) => void
   onContact?: (lead: any) => void
   onScore?: (lead: any) => void
   scoring?: boolean
+  onSelect?: (lead: any) => void
 }) {
   const deleteLead = useDeleteLead()
   const isUnscored = !lead.ai_score || lead.ai_score === 0
 
   return (
     <div
-      className="p-3.5 rounded-2xl mb-2 group transition-all hover:-translate-y-0.5"
+      onClick={() => onSelect?.(lead)}
+      className="p-3.5 rounded-2xl mb-2 group transition-all hover:-translate-y-0.5 cursor-pointer hover:shadow-md"
       style={{ background: 'rgba(255,255,255,0.8)', border: '1px solid rgba(0,0,0,0.06)', boxShadow: '0 1px 4px rgba(0,0,0,0.04)' }}
     >
       {/* Header */}
@@ -54,7 +57,7 @@ function LeadCard({
           </div>
         </div>
         <button
-          onClick={() => { if (confirm('Delete lead?')) deleteLead.mutate(lead.id) }}
+          onClick={(e) => { e.stopPropagation(); if (confirm('Delete lead?')) deleteLead.mutate(lead.id) }}
           className="opacity-0 group-hover:opacity-100 p-1 rounded-lg hover:bg-red-50 transition-all flex-shrink-0"
         >
           <Trash2 className="w-3 h-3" style={{ color: '#dc2626' }} />
@@ -139,7 +142,8 @@ function LeadCard({
           </button>
           <select
             value={lead.stage}
-            onChange={e => onStageChange(lead.id, e.target.value)}
+            onChange={e => { e.stopPropagation(); onStageChange(lead.id, e.target.value) }}
+            onClick={e => e.stopPropagation()}
             className="text-[10px] px-1.5 py-0.5 rounded-lg outline-none cursor-pointer border"
             style={{ background: STAGE_COLORS[lead.stage]?.bg, color: STAGE_COLORS[lead.stage]?.text, borderColor: 'transparent' }}
           >
@@ -157,18 +161,24 @@ function TableRow({
   onStageChange,
   onScore,
   scoring,
+  onSelect,
 }: {
   lead: any
   onStageChange: (id: string, stage: string) => void
   onScore?: (lead: any) => void
   scoring?: boolean
+  onSelect?: (lead: any) => void
 }) {
   const deleteLead = useDeleteLead()
   const sc = STAGE_COLORS[lead.stage] ?? STAGE_COLORS.new
   const isUnscored = !lead.ai_score || lead.ai_score === 0
 
   return (
-    <tr className="group hover:bg-green-50/40 transition-colors border-b" style={{ borderColor: 'rgba(0,0,0,0.04)' }}>
+    <tr
+      onClick={() => onSelect?.(lead)}
+      className="group hover:bg-green-50/40 transition-colors border-b cursor-pointer"
+      style={{ borderColor: 'rgba(0,0,0,0.04)' }}
+    >
       <td className="px-4 py-3">
         <div className="flex items-center gap-2.5">
           <div
@@ -187,7 +197,8 @@ function TableRow({
       <td className="px-4 py-3">
         <select
           value={lead.stage}
-          onChange={e => onStageChange(lead.id, e.target.value)}
+          onChange={e => { e.stopPropagation(); onStageChange(lead.id, e.target.value) }}
+          onClick={e => e.stopPropagation()}
           className="text-[10px] px-2 py-1 rounded-lg outline-none cursor-pointer border"
           style={{ background: sc.bg, color: sc.text, borderColor: 'transparent' }}
         >
@@ -195,7 +206,7 @@ function TableRow({
         </select>
       </td>
       <td className="px-4 py-3">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2" onClick={e => e.stopPropagation()}>
           {isUnscored ? (
             <span className="text-[11px]" style={{ color: 'var(--text-muted)' }}>—</span>
           ) : (
@@ -211,7 +222,7 @@ function TableRow({
           )}
           {/* Score button — visible on row hover */}
           <button
-            onClick={() => onScore?.(lead)}
+            onClick={(e) => { e.stopPropagation(); onScore?.(lead) }}
             disabled={scoring}
             title={isUnscored ? 'Score with AI' : 'Re-score'}
             className="p-0.5 rounded hover:bg-purple-50 transition-colors disabled:opacity-40 opacity-0 group-hover:opacity-100"
@@ -229,7 +240,7 @@ function TableRow({
       <td className="px-4 py-3 text-[10px]" style={{ color: 'var(--text-muted)' }}>{formatTime(lead.created_at)}</td>
       <td className="px-4 py-3">
         <button
-          onClick={() => { if (confirm('Delete lead?')) deleteLead.mutate(lead.id) }}
+          onClick={(e) => { e.stopPropagation(); if (confirm('Delete lead?')) deleteLead.mutate(lead.id) }}
           className="opacity-0 group-hover:opacity-100 p-1.5 rounded-lg hover:bg-red-50 transition-all"
         >
           <Trash2 className="w-3 h-3" style={{ color: '#dc2626' }} />
@@ -328,12 +339,352 @@ function AddLeadModal({ onClose }: { onClose: () => void }) {
   )
 }
 
+// ─── Lead Detail & Followup Hub Modal ─────────────────────────
+function LeadDetailModal({
+  lead: initialLead,
+  onClose,
+  onScore,
+  scoring,
+}: {
+  lead: any
+  onClose: () => void
+  onScore?: (lead: any) => void
+  scoring?: boolean
+}) {
+  const updateLead = useUpdateLead()
+  const regenerateFollowup = useRegenerateFollowUp()
+  const [lead, setLead] = useState(initialLead)
+  const [notes, setNotes] = useState(lead.notes || '')
+  const [stage, setStage] = useState(lead.stage || 'new')
+  const [draft, setDraft] = useState(lead.metadata?.followup_message_draft || '')
+  const [sending, setSending] = useState(false)
+  const [saving, setSaving] = useState(false)
+
+  // Sync state if initialLead changes
+  useState(() => {
+    setLead(initialLead)
+    setNotes(initialLead.notes || '')
+    setStage(initialLead.stage || 'new')
+    setDraft(initialLead.metadata?.followup_message_draft || '')
+  })
+
+  const meta = lead.metadata ?? {}
+  const isGenuine = meta.is_genuine !== false
+  const genScore = meta.genuineness_score ?? (lead.ai_score ? Math.min(100, Math.max(0, lead.ai_score + 5)) : 80)
+  const genReason = meta.genuineness_reasoning || lead.ai_summary || 'Verification details pending scoring...'
+  const isSent = meta.followup_sent === true
+  const scheduledAt = meta.scheduled_followup_at
+  const followupHours = meta.recommended_next_followup_hours ?? 24
+
+  async function handleSave() {
+    setSaving(true)
+    try {
+      const updatedMeta = {
+        ...meta,
+        followup_message_draft: draft,
+      }
+      await updateLead.mutateAsync({
+        id: lead.id,
+        notes,
+        stage,
+        metadata: updatedMeta,
+      })
+      toast.success('Changes saved successfully')
+    } catch (err: any) {
+      toast.error('Failed to save changes: ' + err.message)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function handleRegenerate() {
+    try {
+      toast.info('Regenerating follow-up draft using AI context...')
+      const result = await regenerateFollowup.mutateAsync(lead.id)
+      const newDraft = result?.data?.draft || ''
+      setDraft(newDraft)
+      setLead((l: any) => ({
+        ...l,
+        metadata: {
+          ...(l.metadata ?? {}),
+          followup_message_draft: newDraft,
+        },
+      }))
+      toast.success('New draft successfully written!')
+    } catch (err: any) {
+      toast.error('Regeneration failed: ' + err.message)
+    }
+  }
+
+  async function handleSendNow() {
+    if (!draft) return toast.error('No follow-up message draft exists to send!')
+    setSending(true)
+    try {
+      toast.info('Dispatching hyper-personalized WhatsApp follow-up...')
+      const res = await fetch(`/api/workflows/cron?leadId=${lead.id}`, { method: 'POST' })
+      const data = await res.json()
+      if (data.success && data.processed > 0) {
+        toast.success('WhatsApp follow-up successfully sent and registered in thread!')
+        setLead((l: any) => ({
+          ...l,
+          metadata: {
+            ...(l.metadata ?? {}),
+            followup_sent: true,
+            followup_sent_at: new Date().toISOString(),
+          },
+        }))
+      } else {
+        throw new Error(data.error || 'WhatsApp message failed to deliver. Make sure WhatsApp is connected.')
+      }
+    } catch (err: any) {
+      toast.error(err.message)
+    } finally {
+      setSending(false)
+    }
+  }
+
+  async function handleDelayFollowup(hours: number) {
+    try {
+      const futureTime = new Date(Date.now() + hours * 3600_000).toISOString()
+      const updatedMeta = {
+        ...meta,
+        scheduled_followup_at: futureTime,
+        recommended_next_followup_hours: hours,
+        followup_sent: false,
+      }
+      await updateLead.mutateAsync({
+        id: lead.id,
+        metadata: updatedMeta,
+      })
+      setLead((l: any) => ({ ...l, metadata: updatedMeta }))
+      toast.success(`Rescheduled follow-up in ${hours} hours`)
+    } catch (err: any) {
+      toast.error(err.message)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-md" onClick={onClose}>
+      <div
+        className="glass rounded-3xl w-full max-w-3xl overflow-hidden flex flex-col max-h-[90vh]"
+        style={{ boxShadow: '0 25px 70px rgba(0,0,0,0.2)' }}
+        onClick={e => e.stopPropagation()}
+      >
+        {/* Modal Header */}
+        <div className="p-5 border-b flex justify-between items-start" style={{ borderColor: 'rgba(0,0,0,0.06)' }}>
+          <div className="flex items-center gap-3">
+            <div
+              className="w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold text-emerald-800"
+              style={{ background: 'linear-gradient(135deg,#dcfce7,#bbf7d0)' }}
+            >
+              {getInitials(lead.name)}
+            </div>
+            <div>
+              <h2 className="text-base font-bold leading-tight" style={{ color: 'var(--text-primary)' }}>{lead.name}</h2>
+              <p className="text-xs" style={{ color: 'var(--text-muted)' }}>{lead.phone} {lead.email ? `· ${lead.email}` : ''}</p>
+            </div>
+          </div>
+          <button onClick={onClose} className="p-1 rounded-full hover:bg-black/5 text-gray-500">
+            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-6 space-y-6">
+          {/* Top row: Profile and Genuineness Assessment */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+
+            {/* Left Box: Basic CRM Attributes */}
+            <div className="space-y-4">
+              <h3 className="text-xs font-bold uppercase tracking-wider text-gray-400">Core Lead Data</h3>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="p-3 bg-black/2 rounded-2xl border border-black/4">
+                  <div className="text-[10px] text-gray-400 font-medium">Pipeline Stage</div>
+                  <select
+                    value={stage}
+                    onChange={e => setStage(e.target.value)}
+                    className="w-full mt-1 bg-transparent text-xs font-semibold focus:outline-none border-none p-0 cursor-pointer text-emerald-800"
+                  >
+                    {STAGES.map(s => <option key={s} value={s}>{STAGE_LABELS[s]}</option>)}
+                  </select>
+                </div>
+
+                <div className="p-3 bg-black/2 rounded-2xl border border-black/4">
+                  <div className="text-[10px] text-gray-400 font-medium">Lead Budget</div>
+                  <div className="text-xs font-bold mt-1 text-gray-800">
+                    {lead.budget ? formatCurrency(lead.budget) : 'Unspecified'}
+                  </div>
+                </div>
+              </div>
+
+              <div>
+                <label className="text-[10px] text-gray-400 font-bold uppercase tracking-wider block mb-1">CRM Notes & Background</label>
+                <textarea
+                  value={notes}
+                  onChange={e => setNotes(e.target.value)}
+                  placeholder="Add notes about client preference, budget details, or scheduling constraints..."
+                  className="w-full text-xs p-3 rounded-2xl bg-black/2 border border-black/6 focus:outline-none focus:border-emerald-500 min-h-[90px] resize-none"
+                />
+              </div>
+            </div>
+
+            {/* Right Box: Lead Genuineness & Authentication Hub */}
+            <div className="p-4 rounded-2xl border flex flex-col justify-between" style={{ background: isGenuine ? 'rgba(34,197,94,0.02)' : 'rgba(239,68,68,0.02)', borderColor: isGenuine ? 'rgba(34,197,94,0.12)' : 'rgba(239,68,68,0.12)' }}>
+              <div>
+                <div className="flex items-center justify-between mb-3">
+                  <span className="text-xs font-bold uppercase tracking-wider text-gray-400">Verification Engine</span>
+                  <div className="flex items-center gap-1">
+                    {isGenuine ? (
+                      <span className="flex items-center gap-1 text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-full">
+                        <ShieldCheck className="w-3.5 h-3.5" /> VERIFIED GENUINE
+                      </span>
+                    ) : (
+                      <span className="flex items-center gap-1 text-[10px] font-bold text-amber-700 bg-amber-50 px-2.5 py-1 rounded-full">
+                        <AlertCircle className="w-3.5 h-3.5" /> SUSPICIOUS LEAD
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-4 mb-3">
+                  <div className="w-12 h-12 rounded-full border-4 flex items-center justify-center font-bold text-base" style={{ borderColor: isGenuine ? '#22c55e' : '#f59e0b', color: isGenuine ? '#15803d' : '#b45309' }}>
+                    {genScore}%
+                  </div>
+                  <div>
+                    <div className="text-xs font-bold text-gray-800">Authenticity Score</div>
+                    <div className="text-[10px] text-gray-400">Confidence calculation by AI agent</div>
+                  </div>
+                </div>
+
+                <div className="text-xs p-3 bg-white/40 rounded-xl border border-black/4 leading-relaxed max-h-[100px] overflow-y-auto text-gray-600">
+                  {genReason}
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2 mt-4 text-[10px] text-gray-400">
+                <Brain className="w-3.5 h-3.5 text-purple-500" />
+                <span>Intent parsed as: <strong className="text-gray-700">{lead.intent ? lead.intent.replace(/_/g, ' ') : 'General Enquiry'}</strong></span>
+              </div>
+            </div>
+
+          </div>
+
+          {/* Bottom row: 24/7 Smart Follow-Up Section */}
+          <div className="border-t pt-5" style={{ borderColor: 'rgba(0,0,0,0.06)' }}>
+            <div className="flex items-center justify-between mb-3">
+              <div>
+                <h3 className="text-xs font-bold uppercase tracking-wider text-gray-400 flex items-center gap-1.5">
+                  <Clock className="w-3.5 h-3.5 text-emerald-600 animate-pulse" />
+                  24/7 WhatsApp Follow-Up Queue
+                </h3>
+                <p className="text-[11px] text-gray-400">StrixMind automatically drafts, schedules, and sends follow-ups to qualified leads.</p>
+              </div>
+
+              {/* Follow-up status */}
+              <div>
+                {isSent ? (
+                  <span className="text-[10px] font-bold text-emerald-800 bg-emerald-100 px-2 py-0.5 rounded-full flex items-center gap-1">
+                    <CheckCircle2 className="w-3 h-3" /> Sent ✓
+                  </span>
+                ) : scheduledAt ? (
+                  <span className="text-[10px] font-bold text-purple-800 bg-purple-100 px-2 py-0.5 rounded-full flex items-center gap-1">
+                    <Calendar className="w-3 h-3" /> Scheduled in {followupHours} hours
+                  </span>
+                ) : (
+                  <span className="text-[10px] font-bold text-gray-500 bg-gray-100 px-2 py-0.5 rounded-full">
+                    No followup scheduled
+                  </span>
+                )}
+              </div>
+            </div>
+
+            <div className="p-4 bg-emerald-50/10 border border-emerald-100 rounded-2xl space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-emerald-800 flex items-center gap-1">
+                  <Sparkle className="w-3.5 h-3.5 text-purple-500" /> AI-Generated Draft Message
+                </span>
+                <button
+                  onClick={handleRegenerate}
+                  disabled={regenerateFollowup.isPending}
+                  className="text-[11px] text-purple-700 font-bold flex items-center gap-1 hover:underline disabled:opacity-40"
+                >
+                  {regenerateFollowup.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCcw className="w-3 h-3" />}
+                  Regenerate Draft with AI
+                </button>
+              </div>
+
+              <textarea
+                value={draft}
+                onChange={e => setDraft(e.target.value)}
+                placeholder="Write or edit follow-up message draft..."
+                className="w-full text-xs p-3 rounded-xl bg-white border border-emerald-100/60 focus:outline-none focus:border-emerald-500 min-h-[70px] text-gray-700 shadow-sm animate-none"
+              />
+
+              <div className="flex flex-wrap gap-2 pt-1 items-center justify-between">
+                {/* Reschedule buttons */}
+                <div className="flex gap-1 items-center">
+                  <span className="text-[10px] text-gray-400 mr-1">Delay:</span>
+                  {[
+                    { label: '6h', hours: 6 },
+                    { label: '12h', hours: 12 },
+                    { label: '24h', hours: 24 },
+                    { label: '48h', hours: 48 },
+                  ].map(b => (
+                    <button
+                      key={b.hours}
+                      onClick={() => handleDelayFollowup(b.hours)}
+                      className="text-[10px] px-2 py-1 rounded-lg bg-white border hover:bg-emerald-50 text-gray-600 font-medium transition-colors"
+                    >
+                      +{b.label}
+                    </button>
+                  ))}
+                </div>
+
+                {/* Immediate send button */}
+                <button
+                  onClick={handleSendNow}
+                  disabled={sending || !draft}
+                  className="px-4 py-2 rounded-xl text-xs font-bold text-white flex items-center gap-1.5 shadow-md disabled:opacity-40 transition-all hover:brightness-105"
+                  style={{ background: 'linear-gradient(135deg,#166534,#22c55e)' }}
+                >
+                  {sending ? <Loader2 className="w-3 h-3 animate-spin" /> : <Send className="w-3 h-3" />}
+                  Send WhatsApp Message Now
+                </button>
+              </div>
+            </div>
+          </div>
+
+        </div>
+
+        {/* Modal Footer */}
+        <div className="p-4 bg-black/2 border-t flex justify-end gap-2" style={{ borderColor: 'rgba(0,0,0,0.06)' }}>
+          <button
+            onClick={onClose}
+            className="px-4 py-2 rounded-xl text-xs font-medium bg-white border hover:bg-black/2 text-gray-600"
+          >
+            Close
+          </button>
+          <button
+            onClick={handleSave}
+            disabled={saving}
+            className="px-4 py-2 rounded-xl text-xs font-bold text-white flex items-center gap-1.5 shadow-md hover:brightness-105"
+            style={{ background: 'linear-gradient(135deg,#166534,#22c55e)' }}
+          >
+            {saving && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+            Save All Changes
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ─── Main Leads Component ─────────────────────────────────────
 export default function Leads() {
   const [search, setSearch] = useState('')
   const [stageFilter, setStageFilter] = useState('')
   const [showAdd, setShowAdd] = useState(false)
   const [activeTab, setActiveTab] = useState<TabId>('board')
+  const [selectedLead, setSelectedLead] = useState<any | null>(null)
   // Tracks which single lead is currently being scored (for per-card spinner)
   const [scoringId, setScoringId] = useState<string | null>(null)
 
@@ -564,6 +915,7 @@ export default function Leads() {
                             onStageChange={onStageChange}
                             onScore={onScore}
                             scoring={scoringId === l.id}
+                            onSelect={setSelectedLead}
                           />
                         ))
                   }
@@ -616,6 +968,7 @@ export default function Leads() {
                           onStageChange={onStageChange}
                           onScore={onScore}
                           scoring={scoringId === l.id}
+                          onSelect={setSelectedLead}
                         />
                       ))
                 }
@@ -655,6 +1008,15 @@ export default function Leads() {
         <div className="flex-1">
           <CampaignsSection />
         </div>
+      )}
+
+      {selectedLead && (
+        <LeadDetailModal
+          lead={selectedLead}
+          onClose={() => setSelectedLead(null)}
+          onScore={onScore}
+          scoring={scoringId === selectedLead.id}
+        />
       )}
     </div>
   )

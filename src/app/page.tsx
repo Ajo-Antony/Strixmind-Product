@@ -1,8 +1,10 @@
 'use client'
 import { useState, Component, type ReactNode } from 'react'
+import { useRealtimeSync } from '@/lib/hooks'
 
 import Sidebar from '@/components/layout/Sidebar'
 import Header from '@/components/layout/Header'
+import WhatsAppSimulator from '@/components/WhatsAppSimulator'
 
 import Dashboard from '@/components/Dashboard'
 import Inbox from '@/components/Inbox'
@@ -63,6 +65,7 @@ const PAGES: Record<string, React.ComponentType> = {
 }
 
 export default function Home() {
+  useRealtimeSync()
   const [activeTab, setActiveTab] = useState('dashboard')
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const Page = PAGES[activeTab] ?? Dashboard
@@ -83,6 +86,7 @@ export default function Home() {
           </ErrorBoundary>
         </div>
       </main>
+      <WhatsAppSimulator />
     </div>
   )
 }

@@ -287,106 +287,6 @@ export default function SettingsPage() {
     }
   }
 
-  // Save ALL settings at once
-  async function saveAllSettings() {
-    const allKeys = [
-      'NEXT_PUBLIC_SUPABASE_URL',
-      'NEXT_PUBLIC_SUPABASE_ANON_KEY',
-      'SUPABASE_SERVICE_ROLE_KEY',
-      'WHATSAPP_PHONE_NUMBER_ID',
-      'WHATSAPP_API_TOKEN',
-      'NEXT_PUBLIC_WHATSAPP_API_VERSION',
-      'GEMINI_API_KEY',
-      'OPENAI_API_KEY',
-      'GMAIL_USER',
-      'GMAIL_APP_PASSWORD',
-      'TEAM_NOTIFICATION_EMAIL',
-      'HUBSPOT_PRIVATE_APP_TOKEN',
-      'APOLLO_API_KEY'
-    ]
-    
-    const payloadToSave: Record<string, string> = {}
-    allKeys.forEach(key => {
-      payloadToSave[key] = form[key]
-    })
-
-    setSaving('global')
-    try {
-      const res = await fetch('/api/connections', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'save', payload: payloadToSave }),
-      })
-      const data = await res.json()
-      if (data.success) {
-        try {
-          const localStr = localStorage.getItem('strixmind_connections')
-          const localData = localStr ? JSON.parse(localStr) : {}
-          allKeys.forEach(key => {
-            if (form[key] && !form[key].includes('••••')) {
-              localData[key] = form[key]
-            }
-          })
-          localStorage.setItem('strixmind_connections', JSON.stringify(localData))
-        } catch (e) {
-          console.error('[LocalStorage] Backup sync failed:', e)
-        }
-
-        toast.success('All configuration settings saved successfully!')
-        // Also clear active onboarding step or set to completed
-        setOnboardingStep(5)
-        localStorage.setItem('strixmind_onboarding_step', '5')
-        
-        fetchConnections()
-        fetchLogs()
-      } else {
-        toast.error(data.error || 'Failed to save settings')
-      }
-    } catch (err: any) {
-      toast.error(err.message)
-    } finally {
-      setSaving(null)
-    }
-  }
-
-  // Clear all configurations and local storage backups
-  async function clearAllSettings() {
-    if (!window.confirm('Are you sure you want to clear all configurations? This will reset all fields and delete local backups.')) return
-    
-    localStorage.removeItem('strixmind_connections')
-    localStorage.removeItem('strixmind_onboarding_step')
-    
-    setForm({
-      NEXT_PUBLIC_SUPABASE_URL: '',
-      NEXT_PUBLIC_SUPABASE_ANON_KEY: '',
-      SUPABASE_SERVICE_ROLE_KEY: '',
-      WHATSAPP_PHONE_NUMBER_ID: '',
-      WHATSAPP_API_TOKEN: '',
-      NEXT_PUBLIC_WHATSAPP_API_VERSION: 'v19.0',
-      GEMINI_API_KEY: '',
-      OPENAI_API_KEY: '',
-      GMAIL_USER: '',
-      GMAIL_APP_PASSWORD: '',
-      TEAM_NOTIFICATION_EMAIL: '',
-      APOLLO_API_KEY: '',
-      HUBSPOT_PRIVATE_APP_TOKEN: '',
-    })
-
-    setOnboardingStep(1)
-    
-    setVerification({
-      supabase: { status: 'idle', latency: null, error: null },
-      whatsapp: { status: 'idle', latency: null, error: null },
-      gemini: { status: 'idle', latency: null, error: null },
-      openai: { status: 'idle', latency: null, error: null },
-      gmail: { status: 'idle', latency: null, error: null },
-      hubspot: { status: 'idle', latency: null, error: null },
-      apollo: { status: 'idle', latency: null, error: null },
-    })
-
-    toast.success('All settings and local backups cleared successfully! Walkthrough steps restored.')
-  }
-
   // Live Connection Testing
   async function verifyConnection(type: string, fields: string[]) {
     // Fill up testing state
@@ -620,7 +520,7 @@ export default function SettingsPage() {
             )}
           </div>
 
-          <div className="flex-shrink-0 flex flex-col items-end gap-2.5">
+          <div className="flex-shrink-0">
             {onboardingStep === 1 && (
               <button 
                 onClick={() => {
@@ -691,18 +591,6 @@ export default function SettingsPage() {
                   Setup Ready
                 </div>
               </div>
-            )}
-            {onboardingStep < 5 && (
-              <button 
-                onClick={() => {
-                  setOnboardingStep(5)
-                  localStorage.setItem('strixmind_onboarding_step', '5')
-                  toast.success('Onboarding steps skipped and cleared!')
-                }}
-                className="text-[10px] text-slate-500 hover:text-slate-800 underline underline-offset-2 font-medium transition-all"
-              >
-                Skip & Clear Steps
-              </button>
             )}
           </div>
         </div>
@@ -849,36 +737,6 @@ export default function SettingsPage() {
             </div>
           ) : (
             <>
-              {/* Global Configuration Action Bar */}
-              <div className="glass rounded-3xl p-5 flex flex-col sm:flex-row items-center justify-between gap-4 bg-gradient-to-r from-emerald-50/50 to-emerald-100/10 border border-emerald-100 shadow-sm">
-                <div className="flex items-center gap-2.5">
-                  <div className="w-10 h-10 rounded-2xl bg-emerald-500/10 flex items-center justify-center text-emerald-600">
-                    <Sparkles className="w-5 h-5" />
-                  </div>
-                  <div>
-                    <span className="text-xs font-bold text-slate-900 block">Unified Settings Manager</span>
-                    <p className="text-[10px] text-slate-500">Save all variables at once or clear settings to restart onboarding.</p>
-                  </div>
-                </div>
-                <div className="flex items-center gap-2 w-full sm:w-auto">
-                  <button
-                    onClick={clearAllSettings}
-                    className="flex-1 sm:flex-initial px-3.5 py-2 rounded-xl text-xs font-semibold text-slate-700 bg-white hover:bg-slate-50 border border-slate-200 flex items-center justify-center gap-1.5 transition-all"
-                  >
-                    <Trash2 className="w-3.5 h-3.5 text-slate-400" />
-                    Clear Settings
-                  </button>
-                  <button
-                    onClick={saveAllSettings}
-                    disabled={saving !== null}
-                    className="flex-1 sm:flex-initial px-4.5 py-2 rounded-xl text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 shadow-sm flex items-center justify-center gap-1.5 transition-all"
-                  >
-                    {saving === 'global' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5" />}
-                    Save All Settings
-                  </button>
-                </div>
-              </div>
-
               {/* PILLAR 1: DATABASE */}
               {expandedPillar === 'database' && (
                 <div className="glass rounded-3xl p-6 space-y-5 animate-slide-up">
@@ -1142,70 +1000,6 @@ export default function SettingsPage() {
                         <span>{testMsgResult.message}</span>
                       </div>
                     )}
-                  </div>
-
-                  {/* Dynamic Visual Guide: WhatsApp Inbound Capturing & AI Autopilot */}
-                  <div className="pt-5 mt-5 border-t border-emerald-500/10 space-y-4">
-                    <div className="flex items-center gap-2">
-                      <div className="w-7 h-7 rounded-lg bg-emerald-500/10 flex items-center justify-center text-emerald-600">
-                        <Webhook className="w-4 h-4" />
-                      </div>
-                      <div>
-                        <span className="text-xs font-bold text-slate-900 block">WhatsApp Automation Engine & Lead Pipeline</span>
-                        <p className="text-[10px] text-slate-500">How StrixMind processes incoming WhatsApp conversations on Autopilot.</p>
-                      </div>
-                    </div>
-
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5 pt-1.5">
-                      {/* Step 1 */}
-                      <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-100 space-y-2 relative group hover:border-emerald-100 hover:bg-emerald-50/10 transition-all">
-                        <div className="absolute top-3 right-3 text-[10px] font-bold text-slate-400">01</div>
-                        <div className="w-8 h-8 rounded-xl bg-purple-50 flex items-center justify-center text-purple-600">
-                          <MessageSquare className="w-4 h-4" />
-                        </div>
-                        <div>
-                          <span className="text-xs font-bold text-slate-800 block">Inbound Capturing</span>
-                          <p className="text-[10px] text-slate-500 leading-relaxed mt-0.5">
-                            When a new customer messages your WhatsApp Business number, StrixMind's webhook listener captures their phone number & WhatsApp profile name in real time.
-                          </p>
-                        </div>
-                      </div>
-
-                      {/* Step 2 */}
-                      <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-100 space-y-2 relative group hover:border-emerald-100 hover:bg-emerald-50/10 transition-all">
-                        <div className="absolute top-3 right-3 text-[10px] font-bold text-slate-400">02</div>
-                        <div className="w-8 h-8 rounded-xl bg-blue-50 flex items-center justify-center text-blue-600">
-                          <Database className="w-4 h-4" />
-                        </div>
-                        <div>
-                          <span className="text-xs font-bold text-slate-800 block">Instant Database Logging</span>
-                          <p className="text-[10px] text-slate-500 leading-relaxed mt-0.5">
-                            The system automatically checks if they exist, adds them to your Leads database, tags them with sources, and marks them as a new incoming contact.
-                          </p>
-                        </div>
-                      </div>
-
-                      {/* Step 3 */}
-                      <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-100 space-y-2 relative group hover:border-emerald-100 hover:bg-emerald-50/10 transition-all">
-                        <div className="absolute top-3 right-3 text-[10px] font-bold text-slate-400">03</div>
-                        <div className="w-8 h-8 rounded-xl bg-emerald-50 flex items-center justify-center text-emerald-600">
-                          <Brain className="w-4 h-4" />
-                        </div>
-                        <div>
-                          <span className="text-xs font-bold text-slate-800 block">AI Autopilot Qualification</span>
-                          <p className="text-[10px] text-slate-500 leading-relaxed mt-0.5">
-                            The active AI Agent instantly analyzes intent, starts an automated conversation, gathers details (e.g. budget, interest), and updates status in your CRM list.
-                          </p>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="bg-emerald-500/5 rounded-2xl p-3 border border-emerald-500/10 flex items-start gap-2 text-[11px] text-emerald-800 leading-relaxed">
-                      <Sparkles className="w-4 h-4 text-emerald-600 flex-shrink-0 mt-0.5" />
-                      <div>
-                        <strong>Fully Autonomous Setup:</strong> You do <strong>not</strong> need to manually upload numbers or create list templates. The system intercepts all incoming customer interactions automatically, populates your live dashboard, and runs personalized qualification paths instantly.
-                      </div>
-                    </div>
                   </div>
                 </div>
               )}

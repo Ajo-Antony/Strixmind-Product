@@ -63,6 +63,11 @@ export interface LeadAnalysis {
   suggested_tags: string[]
   create_task: boolean
   task_title: string | null
+  is_genuine?: boolean
+  genuineness_score?: number
+  genuineness_reasoning?: string
+  recommended_next_followup_hours?: number
+  followup_message_draft?: string
 }
 
 export async function analyzeLeadFromConversation(
@@ -84,14 +89,19 @@ Respond ONLY with valid JSON, no markdown, no explanation. Required fields:
   "suggested_reply": "<warm professional WhatsApp reply>",
   "suggested_tags": ["tag1", "tag2"],
   "create_task": <true|false>,
-  "task_title": "<string or null>"
+  "task_title": "<string or null>",
+  "is_genuine": <true|false (whether this is a real customer with genuine intent, not spam/gibberish/wrong number)>,
+  "genuineness_score": <0-100 integer representing lead authenticity/realness>,
+  "genuineness_reasoning": "<1 sentence explaining why they are or aren't genuine>",
+  "recommended_next_followup_hours": <number representing hours to wait before next automated touchpoint, default is 24>,
+  "followup_message_draft": "<a perfectly written custom follow-up message to send later, based on their response/budget/gaps>"
 }`
 
   const result = await callAI({
     systemPrompt: SYSTEM,
     messages,
     temperature: 0.2,
-    maxTokens: 400,                // structured JSON rarely exceeds 400 tokens
+    maxTokens: 600,                // increased slightly to fit added fields comfortably
     taskType: 'lead_qualification',
     responseFormat: 'json',
     provider: 'gemini',
